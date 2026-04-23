@@ -85,38 +85,49 @@ def define_G(opt):
     model_type = model_opt['which_model_G']
 
     # =========================================================
-    # MODEL REGISTRY (NEW)
-    # =========================================================
-    MODEL_REGISTRY = {
-        "sr3": ("sr3_modules", "sr3"),
-        "ddpm": ("ddpm_modules", "ddpm"),
-        "ddpm_srde": ("ddpm_srde_modules", "ddpm_srde"),
-    }
+# MODEL REGISTRY (CLEAN + EXTENSIBLE)
+# =========================================================
+MODEL_REGISTRY = {
+    "sr3": "sr3_modules",
+    "ddpm": "ddpm_modules",
+    "ddpm_srde": "ddpm_srde_modules",   # <-- your custom model
+}
 
+
+def define_G(opt):
+    model_opt = opt['model']
+    model_type = model_opt['which_model_G']
+
+    # =========================================================
+    # VALIDATE MODEL TYPE
+    # =========================================================
     if model_type not in MODEL_REGISTRY:
         raise NotImplementedError(
             f"Unknown model type '{model_type}'. "
             f"Available: {list(MODEL_REGISTRY.keys())}"
         )
 
-    module_path, model_key = MODEL_REGISTRY[model_type]
+    module_name = MODEL_REGISTRY[model_type]
 
-    # dynamic import
-    if model_type == "sr3":
+    # =========================================================
+    # DYNAMIC IMPORT (NO IF/ELIF ANYMORE)
+    # =========================================================
+    if module_name == "sr3_modules":
         from .sr3_modules import diffusion, unet
-    elif model_type == "ddpm":
+    elif module_name == "ddpm_modules":
         from .ddpm_modules import diffusion, unet
-    elif model_type == "ddpm_srde":
-        from .DDPM_SRDE_modules import diffusion, unet
+    elif module_name == "ddpm_srde_modules":
+        from .ddpm_srde_modules import diffusion, unet
+    else:
+        raise ImportError(f"Module {module_name} not found")
 
     # =========================================================
     # DEFAULT CONFIG SAFETY
     # =========================================================
-    if ('norm_groups' not in model_opt['unet']) or model_opt['unet']['norm_groups'] is None:
-        model_opt['unet']['norm_groups'] = 32
+    model_opt['unet'].setdefault('norm_groups', 32)
 
     # =========================================================
-    # BUILD UNET BACKBONE
+    # BUILD UNET
     # =========================================================
     model = unet.UNet(
         in_channel=model_opt['unet']['in_channel'],
@@ -131,7 +142,7 @@ def define_G(opt):
     )
 
     # =========================================================
-    # WRAP IN DIFFUSION PROCESS
+    # WRAP DIFFUSION MODEL
     # =========================================================
     netG = diffusion.GaussianDiffusion(
         model,
@@ -143,13 +154,13 @@ def define_G(opt):
     )
 
     # =========================================================
-    # INITIALIZATION (TRAIN ONLY)
+    # INIT WEIGHTS (TRAIN ONLY)
     # =========================================================
     if opt['phase'] == 'train':
         init_weights(netG, init_type='orthogonal')
 
     # =========================================================
-    # GPU / DISTRIBUTED SUPPORT
+    # DISTRIBUTED WRAP
     # =========================================================
     if opt.get('gpu_ids') and opt.get('distributed'):
         assert torch.cuda.is_available()

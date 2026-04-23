@@ -1,2 +1,2 @@
-# Modified DM-AHR
-Modified DM-AHR: a customized Self-Supervised Diffusion Model for Automatic Hair Removal in Dermoscopic Images for Enhanced skin diagnosis 
+# Hybrid Diffusion-Based Medical Image Enhancement + Decision Pipeline
+“Task-aware diffusion preprocessing for downstream melanoma classification with calibration-aware optimization” 

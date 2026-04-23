@@ -82,41 +82,42 @@ def init_weights(net, init_type='kaiming', scale=1, std=0.02):
 
 def define_G(opt):
     model_opt = opt['model']
-
     model_type = model_opt['which_model_G']
 
-    # -----------------------------
-    # SR3 MODEL
-    # -----------------------------
-    if model_type == 'sr3':
-        from .sr3_modules import diffusion, unet
+    # =========================================================
+    # MODEL REGISTRY (NEW)
+    # =========================================================
+    MODEL_REGISTRY = {
+        "sr3": ("sr3_modules", "sr3"),
+        "ddpm": ("ddpm_modules", "ddpm"),
+        "ddpm_srde": ("ddpm_srde_modules", "ddpm_srde"),
+    }
 
-    # -----------------------------
-    # ORIGINAL DDPM MODEL
-    # -----------------------------
-    elif model_type == 'ddpm':
-        from .ddpm_modules import diffusion, unet
-
-    # -----------------------------
-    # NEW: DDPM_SRDE MODEL
-    # -----------------------------
-    elif model_type == 'ddpm_srde':
-        from .ddpm_srde_modules import diffusion, unet
-
-    else:
+    if model_type not in MODEL_REGISTRY:
         raise NotImplementedError(
-            f"Unknown model type: {model_type}"
+            f"Unknown model type '{model_type}'. "
+            f"Available: {list(MODEL_REGISTRY.keys())}"
         )
 
-    # -----------------------------
-    # safety default for norm groups
-    # -----------------------------
+    module_path, model_key = MODEL_REGISTRY[model_type]
+
+    # dynamic import
+    if model_type == "sr3":
+        from .sr3_modules import diffusion, unet
+    elif model_type == "ddpm":
+        from .ddpm_modules import diffusion, unet
+    elif model_type == "ddpm_srde":
+        from .ddpm_srde_modules import diffusion, unet
+
+    # =========================================================
+    # DEFAULT CONFIG SAFETY
+    # =========================================================
     if ('norm_groups' not in model_opt['unet']) or model_opt['unet']['norm_groups'] is None:
         model_opt['unet']['norm_groups'] = 32
 
-    # -----------------------------
-    # build UNet backbone
-    # -----------------------------
+    # =========================================================
+    # BUILD UNET BACKBONE
+    # =========================================================
     model = unet.UNet(
         in_channel=model_opt['unet']['in_channel'],
         out_channel=model_opt['unet']['out_channel'],
@@ -129,9 +130,9 @@ def define_G(opt):
         image_size=model_opt['diffusion']['image_size']
     )
 
-    # -----------------------------
-    # wrap in diffusion process
-    # -----------------------------
+    # =========================================================
+    # WRAP IN DIFFUSION PROCESS
+    # =========================================================
     netG = diffusion.GaussianDiffusion(
         model,
         image_size=model_opt['diffusion']['image_size'],
@@ -141,17 +142,18 @@ def define_G(opt):
         schedule_opt=model_opt['beta_schedule']['train']
     )
 
-    # -----------------------------
-    # initialization (training only)
-    # -----------------------------
+    # =========================================================
+    # INITIALIZATION (TRAIN ONLY)
+    # =========================================================
     if opt['phase'] == 'train':
         init_weights(netG, init_type='orthogonal')
 
-    # -----------------------------
-    # multi-GPU support
-    # -----------------------------
+    # =========================================================
+    # GPU / DISTRIBUTED SUPPORT
+    # =========================================================
     if opt.get('gpu_ids') and opt.get('distributed'):
         assert torch.cuda.is_available()
         netG = nn.DataParallel(netG)
 
     return netG
+

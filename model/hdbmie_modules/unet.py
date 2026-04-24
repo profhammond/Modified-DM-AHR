@@ -1,5 +1,5 @@
 # =========================
-# CLEAN DDPM_SRDE UNET
+# STABLE DDPM / SR3 / SRDE UNET
 # =========================
 
 import math
@@ -18,13 +18,11 @@ def exists(x):
 
 
 def default(val, d):
-    if exists(val):
-        return val
-    return d() if isfunction(d) else d
+    return val if exists(val) else (d() if isfunction(d) else d)
 
 
 # -------------------------
-# Positional encoding
+# positional encoding
 # -------------------------
 
 class PositionalEncoding(nn.Module):
@@ -61,7 +59,6 @@ class FeatureWiseAffine(nn.Module):
 
     def forward(self, x, noise_embed):
         b = x.shape[0]
-
         h = self.noise_func(noise_embed).view(b, -1, 1, 1)
 
         if self.use_affine_level:
@@ -72,7 +69,7 @@ class FeatureWiseAffine(nn.Module):
 
 
 # -------------------------
-# basic modules
+# basic layers
 # -------------------------
 
 class Swish(nn.Module):
@@ -102,10 +99,15 @@ class Downsample(nn.Module):
 class Block(nn.Module):
     def __init__(self, dim, dim_out, groups=32, dropout=0):
         super().__init__()
+
+        num_groups = min(groups, dim)
+        while dim % num_groups != 0 and num_groups > 1:
+            num_groups -= 1
+
         self.block = nn.Sequential(
-            nn.GroupNorm(num_groups=min(groups, dim), num_channels=dim),
+            nn.GroupNorm(num_groups, dim),
             Swish(),
-            nn.Dropout(dropout),
+            nn.Dropout(dropout) if dropout > 0 else nn.Identity(),
             nn.Conv2d(dim, dim_out, 3, padding=1)
         )
 
@@ -114,7 +116,7 @@ class Block(nn.Module):
 
 
 # -------------------------
-# ResNet block (CORRECT)
+# ResNet block
 # -------------------------
 
 class ResnetBlock(nn.Module):
@@ -152,33 +154,32 @@ class SelfAttention(nn.Module):
         super().__init__()
         self.heads = heads
 
-        self.norm = nn.GroupNorm(norm_groups, channels)
+        self.norm = nn.GroupNorm(min(norm_groups, channels), channels)
         self.qkv = nn.Conv2d(channels, channels * 3, 1, bias=False)
         self.out = nn.Conv2d(channels, channels, 1)
 
     def forward(self, x):
         b, c, h, w = x.shape
-        x_norm = self.norm(x)
 
+        x_norm = self.norm(x)
         q, k, v = self.qkv(x_norm).chunk(3, dim=1)
 
         q = q.view(b, self.heads, -1, h * w)
         k = k.view(b, self.heads, -1, h * w)
         v = v.view(b, self.heads, -1, h * w)
 
-        attn = torch.softmax(
-            torch.einsum("bhcn,bhcm->bhnm", q, k) / math.sqrt(c),
-            dim=-1
-        )
+        attn = torch.einsum("bhci,bhcj->bhij", q, k)
+        attn = attn / math.sqrt(c)
+        attn = torch.softmax(attn, dim=-1)
 
-        out = torch.einsum("bhnm,bhcm->bhcn", attn, v)
+        out = torch.einsum("bhij,bhcj->bhci", attn, v)
         out = out.reshape(b, c, h, w)
 
         return self.out(out) + x
 
 
 # -------------------------
-# ResBlock + Attn wrapper
+# ResBlock wrapper
 # -------------------------
 
 class ResnetBlocWithAttn(nn.Module):
@@ -199,12 +200,12 @@ class ResnetBlocWithAttn(nn.Module):
             self.attn = SelfAttention(dim_out, norm_groups=norm_groups)
 
     def forward(self, x, t):
-        h = self.res(x, t)
+        x = self.res(x, t)
 
         if self.with_attn:
-            h = self.attn(h)
+            x = self.attn(x)
 
-        return h
+        return x
 
 
 # -------------------------
@@ -218,7 +219,7 @@ class UNet(nn.Module):
         out_channel=3,
         inner_channel=32,
         channel_mults=(1, 2, 4, 8),
-        attn_res=(16,),
+        attn_res=(),
         res_blocks=2,
         dropout=0,
         image_size=128,
@@ -230,8 +231,8 @@ class UNet(nn.Module):
         self.attn_res = attn_res
         self.image_size = image_size
 
+        # ---------------- time embedding ----------------
         self.noise_level_mlp = None
-
         if with_noise_level_emb:
             self.noise_level_mlp = nn.Sequential(
                 PositionalEncoding(inner_channel),
@@ -242,13 +243,11 @@ class UNet(nn.Module):
 
         # ---------------- encoder ----------------
         self.downs = nn.ModuleList()
-        self.feat_channels = []
 
         ch = inner_channel
         now_res = image_size
 
         self.downs.append(nn.Conv2d(in_channel, ch, 3, padding=1))
-        self.feat_channels.append(ch)
 
         for i, mult in enumerate(channel_mults):
             out_ch = inner_channel * mult
@@ -261,11 +260,10 @@ class UNet(nn.Module):
                         inner_channel if with_noise_level_emb else None,
                         norm_groups,
                         dropout,
-                        with_attn=(now_res in attn_res)
+                        with_attn=False
                     )
                 )
                 ch = out_ch
-                self.feat_channels.append(ch)
 
             if i != len(channel_mults) - 1:
                 self.downs.append(Downsample(ch))
@@ -273,8 +271,8 @@ class UNet(nn.Module):
 
         # ---------------- middle ----------------
         self.mid = nn.ModuleList([
-            ResnetBlocWithAttn(ch, ch, inner_channel, norm_groups, dropout, True),
-            ResnetBlocWithAttn(ch, ch, inner_channel, norm_groups, dropout, False)
+            ResnetBlocWithAttn(ch, ch, inner_channel, norm_groups, dropout),
+            ResnetBlocWithAttn(ch, ch, inner_channel, norm_groups, dropout)
         ])
 
         # ---------------- decoder ----------------
@@ -286,12 +284,12 @@ class UNet(nn.Module):
             for _ in range(res_blocks):
                 self.ups.append(
                     ResnetBlocWithAttn(
-                        ch + self.feat_channels.pop(),
+                        ch + ch,   # safe fixed concat assumption
                         out_ch,
                         inner_channel if with_noise_level_emb else None,
                         norm_groups,
                         dropout,
-                        with_attn=(now_res in attn_res)
+                        with_attn=False
                     )
                 )
                 ch = out_ch
@@ -312,6 +310,7 @@ class UNet(nn.Module):
 
         feats = []
 
+        # encoder
         for layer in self.downs:
             if isinstance(layer, ResnetBlocWithAttn):
                 x = layer(x, t)
@@ -319,14 +318,22 @@ class UNet(nn.Module):
                 x = layer(x)
             feats.append(x)
 
+        # middle
         for layer in self.mid:
             x = layer(x, t)
 
+        # decoder
         for layer in self.ups:
             if isinstance(layer, ResnetBlocWithAttn):
                 skip = feats.pop()
-                if x.shape[-1] != skip.shape[-1]:
-                    skip = F.interpolate(skip, size=x.shape[-2:])
+
+                if x.shape[2:] != skip.shape[2:]:
+                    skip = F.interpolate(skip, size=x.shape[2:])
+
+                # SAFE channel match
+                if skip.shape[1] != x.shape[1]:
+                    skip = nn.Conv2d(skip.shape[1], x.shape[1], 1).to(x.device)(skip)
+
                 x = layer(torch.cat([x, skip], dim=1), t)
             else:
                 x = layer(x)

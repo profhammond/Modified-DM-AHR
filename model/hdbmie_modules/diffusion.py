@@ -90,22 +90,24 @@ class GaussianDiffusion(nn.Module):
         self.conditional = conditional
         self.loss_type = loss_type
         timesteps = 1000
-        beta_start = 1e-4
-        beta_end = 2e-2
-        
-        betas = torch.linspace(beta_start, beta_end, timesteps)
+
+        betas = torch.linspace(1e-4, 2e-2, timesteps)
         
         alphas = 1.0 - betas
         alphas_cumprod = torch.cumprod(alphas, dim=0)
-        alphas_cumprod_prev = torch.cat([torch.tensor([1.0]), alphas_cumprod[:-1]])
         
-        # register buffers (IMPORTANT for .to(device))
         self.register_buffer("betas", betas)
         self.register_buffer("alphas_cumprod", alphas_cumprod)
-        self.register_buffer("alphas_cumprod_prev", alphas_cumprod_prev)
         
-        self.register_buffer("sqrt_alphas_cumprod", torch.sqrt(alphas_cumprod))
-        self.register_buffer("sqrt_one_minus_alphas_cumprod", torch.sqrt(1.0 - alphas_cumprod))
+        self.register_buffer(
+            "sqrt_alphas_cumprod",
+            torch.sqrt(alphas_cumprod)
+        )
+        
+        self.register_buffer(
+            "sqrt_one_minus_alphas_cumprod",
+            torch.sqrt(1 - alphas_cumprod)
+        )
 
         
 

@@ -98,6 +98,7 @@ class ResnetBlocWithAttn(nn.Module):
     def __init__(self, dim, dim_out, *, noise_level_emb_dim=None, norm_groups=32, dropout=0, with_attn=False):
         super().__init__()
         self.with_attn = with_attn
+
         self.res_block = ResnetBlock(
             dim,
             dim_out,
@@ -110,13 +111,13 @@ class ResnetBlocWithAttn(nn.Module):
             self.attn = SelfAttention(dim_out, norm_groups=norm_groups)
 
     def forward(self, x, time_emb):
+        # IMPORTANT: correct indentation (4 spaces)
         h = self.res_block(x, time_emb)
 
         if self.with_attn:
             h = self.attn(h)
 
         return h
-
 
 class SelfAttention(nn.Module):
     def __init__(self, in_channel, n_head=1, norm_groups=32):

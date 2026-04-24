@@ -119,6 +119,7 @@ class ResnetBlocWithAttn(nn.Module):
 
         return h
 
+
 class SelfAttention(nn.Module):
     def __init__(self, in_channel, n_head=1, norm_groups=32):
         super().__init__()

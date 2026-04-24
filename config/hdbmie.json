@@ -36,7 +36,7 @@
     },
 
     "model": {
-        "which_model_G": "ddpm_srde",
+        "which_model_G": "hdbmie",
         "finetune_norm": false,
 
         "unet": {

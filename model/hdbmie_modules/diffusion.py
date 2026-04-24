@@ -89,7 +89,7 @@ class GaussianDiffusion(nn.Module):
         self.channels = channels
         self.conditional = conditional
         self.loss_type = loss_type
-        timesteps = 1000
+        self.num_timesteps = 1000
 
         betas = torch.linspace(1e-4, 2e-2, timesteps)
         

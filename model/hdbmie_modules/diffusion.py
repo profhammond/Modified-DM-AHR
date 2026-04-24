@@ -75,13 +75,14 @@ def noise_like(shape, device):
 
 class GaussianDiffusion(nn.Module):
     def __init__(
-        self,
-        denoise_fn,
-        image_size,
+        self, 
+        model, 
+        image_size, 
         channels=3,
-        loss_type='huber',   # improved default
-        conditional=True
-    ):
+        loss_type='l1', 
+        conditional=True,
+        schedule_opt=None
+        ):
         super().__init__()
 
         self.denoise_fn = denoise_fn
@@ -89,6 +90,11 @@ class GaussianDiffusion(nn.Module):
         self.channels = channels
         self.conditional = conditional
         self.loss_type = loss_type
+
+        if schedule_opt is not None:
+            self.schedule = schedule_opt
+        else:
+            self.schedule = default_schedule()
 
     # ----------------------------
     # LOSS

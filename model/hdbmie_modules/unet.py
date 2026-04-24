@@ -112,14 +112,44 @@ class ResnetBlocWithAttn(nn.Module):
         if with_attn:
             self.attn = SelfAttention(dim_out, norm_groups=norm_groups)
 
-    def forward(self, x, time_emb):
-        
-        h = self.res_block(x, time_emb)
+    def forward(self, x, time):
+        # stronger time-conditioning (IMPROVEMENT #5)
+        t = self.noise_level_mlp(time) if exists(self.noise_level_mlp) else None
+        if t is not None:
+            t = t * 1.5
+    
+        feats = []
 
-        if self.with_attn:
-            h = self.attn(h)
+        # DOWN PATH
+        for layer in self.downs:
+            if isinstance(layer, ResnetBlocWithAttn):
+                x = layer(x, t)
+            else:
+                x = layer(x)
+            feats.append(x)
+    
+        # MIDDLE
+        for layer in self.mid:
+            if isinstance(layer, ResnetBlocWithAttn):
+                x = layer(x, t)
+            else:
+                x = layer(x)
+    
+        # UP PATH
+        for layer in self.ups:
+            if isinstance(layer, ResnetBlocWithAttn):
+                skip = feats.pop()
+    
+                # safety: match spatial dims
+                if x.shape[-1] != skip.shape[-1]:
+                    skip = F.interpolate(skip, size=x.shape[-2:])
+    
+                x = layer(torch.cat([x, skip], dim=1), t)
+            else:
+                x = layer(x)
 
-        return h
+    return self.final_conv(x)
+
 
 
 

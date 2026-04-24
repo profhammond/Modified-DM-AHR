@@ -31,7 +31,7 @@ def make_beta_schedule(n_timestep, linear_start=1e-4, linear_end=2e-2):
 
 def extract(a, t, x_shape):
     b = t.shape[0]
-    out = a.gather(-1, t)
+    out = a.gather(0, t)  # FIX: gather along correct dim
     return out.reshape(b, *((1,) * (len(x_shape) - 1)))
 
 
@@ -77,7 +77,7 @@ class GaussianDiffusion(nn.Module):
         alphas_cumprod = torch.cumprod(alphas, dim=0)
         alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
 
-        # buffers
+        # ---------------- buffers ----------------
         self.register_buffer("betas", betas)
         self.register_buffer("alphas_cumprod", alphas_cumprod)
         self.register_buffer("alphas_cumprod_prev", alphas_cumprod_prev)
@@ -89,8 +89,11 @@ class GaussianDiffusion(nn.Module):
         self.register_buffer("sqrt_recip_alphas",
                              torch.sqrt(1.0 / alphas))
 
-        self.register_buffer("posterior_variance",
-                             betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod))
+        # FIX: numerical stability
+        self.register_buffer(
+            "posterior_variance",
+            betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod + 1e-8)
+        )
 
 
     # ----------------------------
@@ -153,10 +156,11 @@ class GaussianDiffusion(nn.Module):
         sqrt_recip_alphas_t = extract(self.sqrt_recip_alphas, t, x.shape)
 
         model_mean = sqrt_recip_alphas_t * (
-            x - betas_t * noise_pred / sqrt_one_minus_alphas_cumprod_t
+            x - betas_t * noise_pred / (sqrt_one_minus_alphas_cumprod_t + 1e-8)
         )
 
-        if t.min() == 0:
+        # FIX: correct per-sample t == 0 handling
+        if (t == 0).all():
             return model_mean
 
         noise = torch.randn_like(x)

@@ -91,7 +91,7 @@ class GaussianDiffusion(nn.Module):
         self.loss_type = loss_type
         self.num_timesteps = 1000
 
-        betas = torch.linspace(1e-4, 2e-2, timesteps)
+        betas = torch.linspace(1e-4, 2e-2, num_timesteps)
         
         alphas = 1.0 - betas
         alphas_cumprod = torch.cumprod(alphas, dim=0)

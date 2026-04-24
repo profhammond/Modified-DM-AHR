@@ -151,7 +151,7 @@ def define_G(opt):
         loss_type='l1',
         conditional=model_opt['diffusion']['conditional'],
         schedule_opt=model_opt['beta_schedule']['train']
-    )
+)
 
     # =========================================================
     # INIT WEIGHTS (TRAIN ONLY)

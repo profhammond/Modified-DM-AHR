@@ -158,7 +158,6 @@ class SelfAttention(nn.Module):
 
     def forward(self, x):
         b, c, h, w = x.shape
-
         x_norm = self.norm(x)
 
         q, k, v = self.qkv(x_norm).chunk(3, dim=1)
